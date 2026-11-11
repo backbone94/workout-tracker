@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#101317">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="운동 순서">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg">
+<link rel="apple-touch-icon" href="icon.svg">
+<title>운동 순서</title>
+<style>
+  :root {
+    --bg: #101317; --card: #1a1f26; --line: #2a313b;
+    --text: #e8ecf1; --sub: #8b95a3;
+    --chest: #ff6b6b; --shoulder: #4dabf7; --back: #51cf66;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", Pretendard, "Malgun Gothic", sans-serif;
+    padding: max(20px, env(safe-area-inset-top)) 16px max(32px, env(safe-area-inset-bottom));
+  }
+  main { max-width: 440px; margin: 0 auto; }
+  .date { color: var(--sub); font-size: 14px; }
+  h1 { font-size: 22px; margin: 4px 0 16px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 18px; margin-bottom: 14px; }
+  .label { font-size: 13px; color: var(--sub); margin-bottom: 10px; font-weight: 600; }
+  .parts { display: flex; gap: 8px; }
+  .part { flex: 1; text-align: center; padding: 14px 0; border-radius: 12px; font-weight: 700; font-size: 19px; border: 1px solid transparent; }
+  .part small { display: block; font-size: 12px; font-weight: 500; margin-top: 4px; opacity: .9; }
+  .part.on.chest { background: rgba(255,107,107,.16); color: var(--chest); border-color: rgba(255,107,107,.4); }
+  .part.on.shoulder { background: rgba(77,171,247,.16); color: var(--shoulder); border-color: rgba(77,171,247,.4); }
+  .part.on.back { background: rgba(81,207,102,.16); color: var(--back); border-color: rgba(81,207,102,.4); }
+  .part.off { border: 1px dashed var(--line); color: #5b6573; }
+  .info { font-size: 14px; color: var(--sub); margin-top: 12px; line-height: 1.5; }
+  .info b { color: var(--text); }
+  .btn { width: 100%; padding: 16px; border: 0; border-radius: 12px; font-size: 17px; font-weight: 700; background: var(--text); color: var(--bg); margin-top: 14px; cursor: pointer; font-family: inherit; }
+  .btn:active { transform: scale(.98); }
+  .btn.ghost { background: transparent; color: var(--sub); border: 1px solid var(--line); font-weight: 500; font-size: 15px; padding: 12px; }
+  .row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-top: 1px solid var(--line); font-size: 15px; }
+  .row:first-of-type { border-top: 0; }
+  .row .when { color: var(--sub); }
+  .row .when b { color: var(--text); font-weight: 600; margin-right: 6px; }
+  .tag { display: inline-block; padding: 3px 9px; border-radius: 999px; font-size: 13px; font-weight: 600; margin-left: 4px; }
+  .tag.chest { background: rgba(255,107,107,.16); color: var(--chest); }
+  .tag.shoulder { background: rgba(77,171,247,.16); color: var(--shoulder); }
+  .tag.back { background: rgba(81,207,102,.16); color: var(--back); }
+  .tag.rest { color: #5b6573; border: 1px dashed var(--line); }
+  .empty { color: var(--sub); font-size: 14px; }
+  details summary { cursor: pointer; color: var(--sub); font-size: 14px; font-weight: 600; }
+  .pick { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+  .pick button { padding: 12px 8px; border-radius: 10px; border: 1px solid var(--line); background: transparent; color: var(--text); font-size: 14px; font-family: inherit; cursor: pointer; }
+  .pick button.cur { border-color: var(--text); font-weight: 700; }
+  .danger { background: none; border: 0; color: #ff8787; font-size: 13px; margin-top: 14px; padding: 0; cursor: pointer; font-family: inherit; }
+</style>
+</head>
+<body>
+<main id="app"></main>
+<script>
+  const KEY = 'workout-v1';
+  const NAME = { chest: '가슴', shoulder: '어깨', back: '등' };
+  // 4일 주기: 가슴·어깨는 하루씩 번갈아, 등은 3일 하고 하루 휴식 (휴식일은 가슴 날)
+  const CYCLE = [
+    ['shoulder', 'back'],
+    ['chest', 'back'],
+    ['shoulder', 'back'],
+    ['chest'],
+  ];
+  // 첫 기록: 2026-11-12에 가슴만 운동함 (등 휴식)
+  const INITIAL = { next: 0, log: [{ date: '2026-11-12', step: 3 }] };
+  const WEEK = '일월화수목금토';
+
+  let state = load();
+
+  function load() {
+    try {
+      const s = JSON.parse(localStorage.getItem(KEY));
+      if (s && Array.isArray(s.log)) return s;
+    } catch (e) {}
+    return JSON.parse(JSON.stringify(INITIAL));
+  }
+  function save() { localStorage.setItem(KEY, JSON.stringify(state)); }
+
+  function ymd(d) {
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+  function parse(s) { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); }
+  function today() { return ymd(new Date()); }
+  function addDays(s, n) { const d = parse(s); d.setDate(d.getDate() + n); return ymd(d); }
+  function diff(a, b) { return Math.round((parse(b) - parse(a)) / 86400000); }
+  function fmt(s) { const d = parse(s); return `${d.getMonth() + 1}/${d.getDate()} (${WEEK[d.getDay()]})`; }
+  function past(s) {
+    const n = diff(s, today());
+    if (n === 0) return '오늘';
+    if (n === 1) return '어제';
+    if (n === 2) return '그저께';
+    return `${n}일 전`;
+  }
+  function future(k) { return ['오늘', '내일', '모레'][k] || null; }
+
+  function tags(step) {
+    const c = CYCLE[step];
+    return c.map(id => `<span class="tag ${id}">${NAME[id]}</span>`).join('') +
+      (c.includes('back') ? '' : '<span class="tag rest">등 휴식</span>');
+  }
+  function stepName(step) {
+    const c = CYCLE[step];
+    return c.map(id => NAME[id]).join('·') + (c.includes('back') ? '' : ' (등 휴식)');
+  }
+  function parts(step) {
+    const c = CYCLE[step];
+    return '<div class="parts">' + ['chest', 'shoulder', 'back'].map(id => {
+      const on = c.includes(id);
+      let sub = on ? '하는 날' : '쉬는 날';
+      if (id === 'back' && on) sub = `${step + 1}/3일째`;
+      return `<div class="part ${id} ${on ? 'on' : 'off'}">${NAME[id]}<small>${sub}</small></div>`;
+    }).join('') + '</div>';
+  }
+  function backLine(step) {
+    return CYCLE[step].includes('back')
+      ? `등은 <b>하는 날</b>입니다. 3일 중 ${step + 1}일째입니다.`
+      : `등은 <b>쉬는 날</b>입니다. 내일부터 다시 3일 합니다.`;
+  }
+
+  function render() {
+    const t = today();
+    const last = state.log[0];
+    const doneToday = last && last.date === t;
+    let html = `<div class="date">${fmt(t)}</div><h1>운동 순서</h1>`;
+
+    if (doneToday) {
+      html += `<section class="card">
+        <div class="label">오늘 완료 ✓</div>
+        ${parts(last.step)}
+        <button class="btn ghost" onclick="undo()">완료 취소</button>
+      </section>
+      <section class="card">
+        <div class="label">다음 운동</div>
+        ${parts(state.next)}
+        <div class="info">${backLine(state.next)}</div>
+      </section>`;
+    } else {
+      let lastInfo = '';
+      if (last) {
+        const gap = diff(last.date, t);
+        lastInfo = `<div class="info">지난 운동: <b>${past(last.date)}</b> · ${stepName(last.step)}` +
+          (gap > 1 ? `<br>며칠 쉬었어도 순서는 끊긴 곳부터 이어집니다.` : '') + `</div>`;
+      } else {
+        lastInfo = `<div class="info">처음 쓰신다면 아래 <b>순서 바로잡기</b>에서 오늘 할 운동을 먼저 골라 주세요.</div>`;
+      }
+      html += `<section class="card">
+        <div class="label">오늘 할 운동</div>
+        ${parts(state.next)}
+        <div class="info">${backLine(state.next)}</div>
+        ${lastInfo}
+        <button class="btn" onclick="complete()">운동 완료</button>
+      </section>`;
+    }
+
+    // 앞으로의 순서
+    const start = doneToday ? 1 : 0;
+    html += `<section class="card"><div class="label">앞으로 (매일 한다고 가정)</div>`;
+    for (let i = 0; i < 4; i++) {
+      const k = start + i;
+      const d = addDays(t, k);
+      const step = (state.next + i) % CYCLE.length;
+      html += `<div class="row"><span class="when">${future(k) ? `<b>${future(k)}</b>` : ''}${fmt(d)}</span><span>${tags(step)}</span></div>`;
+    }
+    html += `</section>`;
+
+    // 기록
+    html += `<section class="card"><div class="label">기록</div>`;
+    if (state.log.length === 0) {
+      html += `<div class="empty">아직 기록이 없습니다.</div>`;
+    } else {
+      for (const e of state.log.slice(0, 14)) {
+        html += `<div class="row"><span class="when"><b>${past(e.date)}</b>${fmt(e.date)}</span><span>${tags(e.step)}</span></div>`;
+      }
+    }
+    html += `</section>`;
+
+    // 순서 바로잡기
+    html += `<section class="card"><details>
+      <summary>순서 바로잡기</summary>
+      <div class="info">${doneToday ? '내일' : '오늘'} 할 운동을 직접 고릅니다. 처음 쓸 때나 순서가 꼬였을 때 사용하세요.</div>
+      <div class="pick">${CYCLE.map((_, i) =>
+        `<button class="${i === state.next ? 'cur' : ''}" onclick="setNext(${i})">${stepName(i)}<br><small>${i < 3 ? `등 ${i + 1}/3일째` : '등 휴식일'}</small></button>`
+      ).join('')}</div>
+      <button class="danger" onclick="reset()">기록 모두 지우기</button>
+    </details></section>`;
+
+    document.getElementById('app').innerHTML = html;
+  }
+
+  function complete() {
+    state.log.unshift({ date: today(), step: state.next });
+    state.next = (state.next + 1) % CYCLE.length;
+    save(); render();
+  }
+  function undo() {
+    const e = state.log.shift();
+    if (e) state.next = e.step;
+    save(); render();
+  }
+  function setNext(i) {
+    state.next = i;
+    save(); render();
+  }
+  function reset() {
+    if (!confirm('기록을 모두 지울까요? 되돌릴 수 없습니다.')) return;
+    state = { next: 0, log: [] };
+    save(); render();
+  }
+
+  render();
+  // 자정이 지나거나 앱으로 돌아왔을 때 날짜를 다시 계산합니다.
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) render(); });
+
+  if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  }
+</script>
+</body>
+</html>
