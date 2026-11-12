@@ -54,6 +54,24 @@
   .pick { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
   .pick button { padding: 12px 8px; border-radius: 10px; border: 1px solid var(--line); background: transparent; color: var(--text); font-size: 14px; font-family: inherit; cursor: pointer; }
   .pick button.cur { border-color: var(--text); font-weight: 700; }
+  .cal-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .cal-top .label { margin: 0; font-size: 15px; color: var(--text); }
+  .cal-top .label span { color: var(--sub); font-weight: 500; margin-left: 6px; }
+  .cal-top button { background: none; border: 1px solid var(--line); color: var(--text); width: 34px; height: 34px; border-radius: 10px; font-size: 18px; cursor: pointer; font-family: inherit; }
+  .cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+  .cal-h { text-align: center; font-size: 12px; color: var(--sub); padding: 4px 0; }
+  .cal-h.sun { color: #ff8787; }
+  .cal-h.sat { color: #74c0fc; }
+  .cal-d { aspect-ratio: 1; border-radius: 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; font-size: 14px; color: #5b6573; }
+  .cal-d.done { background: #232a33; color: var(--text); font-weight: 600; }
+  .cal-d.today { box-shadow: inset 0 0 0 1.5px var(--text); color: var(--text); }
+  .dots { display: flex; gap: 3px; height: 6px; }
+  .dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+  .dot.chest { background: var(--chest); }
+  .dot.shoulder { background: var(--shoulder); }
+  .dot.back { background: var(--back); }
+  .legend { display: flex; gap: 14px; justify-content: center; margin-top: 12px; font-size: 12px; color: var(--sub); }
+  .legend .dot { margin-right: 5px; vertical-align: middle; }
   .danger { background: none; border: 0; color: #ff8787; font-size: 13px; margin-top: 14px; padding: 0; cursor: pointer; font-family: inherit; }
 </style>
 </head>
@@ -125,6 +143,45 @@
       : `등은 <b>쉬는 날</b>입니다. 내일부터 다시 3일 합니다.`;
   }
 
+  // 달력에서 보고 있는 달 (저장하지 않음)
+  const now = new Date();
+  const view = { y: now.getFullYear(), m: now.getMonth() };
+
+  function calendar() {
+    const done = {};
+    for (const e of state.log) if (!(e.date in done)) done[e.date] = e.step;
+    const { y, m } = view;
+    const first = new Date(y, m, 1).getDay();
+    const days = new Date(y, m + 1, 0).getDate();
+    const t = today();
+    let count = 0;
+    let cells = WEEK.split('').map((w, i) =>
+      `<div class="cal-h ${i === 0 ? 'sun' : i === 6 ? 'sat' : ''}">${w}</div>`).join('');
+    for (let i = 0; i < first; i++) cells += '<div></div>';
+    for (let d = 1; d <= days; d++) {
+      const key = ymd(new Date(y, m, d));
+      const isDone = key in done;
+      if (isDone) count++;
+      const dots = isDone ? CYCLE[done[key]].map(id => `<i class="dot ${id}"></i>`).join('') : '';
+      cells += `<div class="cal-d ${isDone ? 'done' : ''} ${key === t ? 'today' : ''}"><span>${d}</span><div class="dots">${dots}</div></div>`;
+    }
+    return `<section class="card">
+      <div class="cal-top">
+        <button onclick="moveMonth(-1)" aria-label="이전 달">‹</button>
+        <div class="label">${y}년 ${m + 1}월<span>${count}일 운동</span></div>
+        <button onclick="moveMonth(1)" aria-label="다음 달">›</button>
+      </div>
+      <div class="cal">${cells}</div>
+      <div class="legend"><span><i class="dot chest"></i>가슴</span><span><i class="dot shoulder"></i>어깨</span><span><i class="dot back"></i>등</span></div>
+    </section>`;
+  }
+  function moveMonth(n) {
+    view.m += n;
+    if (view.m < 0) { view.m = 11; view.y--; }
+    if (view.m > 11) { view.m = 0; view.y++; }
+    render();
+  }
+
   function render() {
     const t = today();
     const last = state.log[0];
@@ -159,6 +216,8 @@
         <button class="btn" onclick="complete()">운동 완료</button>
       </section>`;
     }
+
+    html += calendar();
 
     // 앞으로의 순서
     const start = doneToday ? 1 : 0;
