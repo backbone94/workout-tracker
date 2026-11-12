@@ -1,5 +1,5 @@
 // 오프라인에서도 열리도록 파일을 캐시합니다. 온라인이면 항상 최신 파일을 먼저 받습니다.
-const CACHE = 'workout-v2';
+const CACHE = 'workout-v3';
 const FILES = ['./', './index.html', './manifest.webmanifest', './icon.svg'];
 
 self.addEventListener('install', e => {
