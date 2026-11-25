@@ -1,0 +1,1 @@
+This file verifies that Dot can write to a test branch.
