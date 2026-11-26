@@ -96,6 +96,7 @@
   const INITIAL = { next: 0, log: [{ date: '2026-11-12', step: 3 }] };
   const WEEK = '일월화수목금토';
   const BACK_REST = 3;
+  const CHEST_RESTART_STEP = CYCLE.findIndex(parts => parts[0] === 'chest');
   const MISSED_DAYS_TO_RESTART_BACK = 3;
 
   let state = load();
@@ -136,7 +137,9 @@
     // 오늘과 마지막 운동일 사이에서 실제로 운동을 건너뛴 날만 셉니다.
     const missed = last ? diff(last.date, date) - 1 : 0;
     const restarted = missed >= MISSED_DAYS_TO_RESTART_BACK && state.manualDate !== date;
-    return { step: state.next, backStep: restarted ? 0 : (state.nextBack ?? state.next), restarted };
+    return restarted
+      ? { step: CHEST_RESTART_STEP, backStep: 0, restarted }
+      : { step: state.next, backStep: state.nextBack ?? state.next, restarted };
   }
 
   function tags(step, backStep = step) {
@@ -230,7 +233,7 @@
         const gap = diff(last.date, t);
         lastInfo = `<div class="info">지난 운동: <b>${past(last.date)}</b> · ${stepName(last.step, last.backStep)}` +
           (next.restarted
-            ? '<br>3일 이상 쉬어서 등 운동은 1일째부터 다시 시작합니다.'
+            ? '<br>3일 이상 쉬어서 가슴과 등 운동 1일째부터 다시 시작합니다.'
             : gap > 1 && gap <= MISSED_DAYS_TO_RESTART_BACK
               ? '<br>운동 순서는 끊긴 곳부터 이어집니다.' : '') + '</div>';
       } else {
