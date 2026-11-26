@@ -132,14 +132,30 @@
     const part = CYCLE[step][0];
     return backStep === BACK_REST ? [part] : [part, 'back'];
   }
-  function nextWorkout(date) {
-    const last = state.log[0];
+  function missedEnough(previous, date) {
     // 오늘과 마지막 운동일 사이에서 실제로 운동을 건너뛴 날만 셉니다.
-    const missed = last ? diff(last.date, date) - 1 : 0;
-    const restarted = missed >= MISSED_DAYS_TO_RESTART_BACK && state.manualDate !== date;
+    return !!previous && diff(previous.date, date) - 1 >= MISSED_DAYS_TO_RESTART_BACK;
+  }
+  function nextWorkout(date) {
+    const restarted = missedEnough(state.log[0], date) && state.manualDate !== date;
     return restarted
       ? { step: CHEST_RESTART_STEP, backStep: 0, restarted }
       : { step: state.next, backStep: state.nextBack ?? state.next, restarted };
+  }
+
+  function canCorrectRestart(date) {
+    const [entry, previous] = state.log;
+    return entry?.date === date && missedEnough(previous, date) &&
+      (CYCLE[entry.step][0] !== 'chest' || (entry.backStep ?? entry.step) !== 0);
+  }
+  function correctRestartToday() {
+    if (!canCorrectRestart(today())) return;
+    // 완료 기록은 날짜와 나머지 필드를 유지하고 오늘의 운동 순서만 바꿉니다.
+    state.log[0] = { ...state.log[0], step: CHEST_RESTART_STEP, backStep: 0 };
+    state.next = (CHEST_RESTART_STEP + 1) % CYCLE.length;
+    state.nextBack = 1;
+    delete state.manualDate;
+    save(); render();
   }
 
   function tags(step, backStep = step) {
@@ -220,6 +236,7 @@
       html += `<section class="card">
         <div class="label">오늘 완료 ✓</div>
         ${parts(last.step, last.backStep)}
+        ${canCorrectRestart(t) ? '<button class="btn" onclick="correctRestartToday()">가슴 + 등 1일째로 수정</button>' : ''}
         <button class="btn ghost" onclick="undo()">완료 취소</button>
       </section>
       <section class="card">
