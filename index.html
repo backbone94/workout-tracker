@@ -85,7 +85,7 @@
 <script>
   const KEY = 'workout-v1';
   const NAME = { chest: '가슴', shoulder: '어깨', back: '등' };
-  // 4일 주기: 가슴·어깨는 하루씩 번갈아, 등은 3일 하고 하루 휴식 (휴식일은 가슴 날)
+  // 기존 순서와 기록은 그대로 읽습니다. 가슴·어깨와 등 순서는 별도로 진행합니다.
   const CYCLE = [
     ['shoulder', 'back'],
     ['chest', 'back'],
@@ -95,6 +95,8 @@
   // 첫 기록: 2026-11-12에 가슴만 운동함 (등 휴식)
   const INITIAL = { next: 0, log: [{ date: '2026-11-12', step: 3 }] };
   const WEEK = '일월화수목금토';
+  const BACK_REST = 3;
+  const MISSED_DAYS_TO_RESTART_BACK = 3;
 
   let state = load();
 
@@ -124,27 +126,40 @@
   }
   function future(k) { return ['오늘', '내일', '모레'][k] || null; }
 
-  function tags(step) {
-    const c = CYCLE[step];
+  // 예전 기록은 step만 가지고 있고, 새 기록은 등 순서를 따로 저장합니다.
+  function workoutParts(step, backStep = step) {
+    const part = CYCLE[step][0];
+    return backStep === BACK_REST ? [part] : [part, 'back'];
+  }
+  function nextWorkout(date) {
+    const last = state.log[0];
+    // 오늘과 마지막 운동일 사이에서 실제로 운동을 건너뛴 날만 셉니다.
+    const missed = last ? diff(last.date, date) - 1 : 0;
+    const restarted = missed >= MISSED_DAYS_TO_RESTART_BACK && state.manualDate !== date;
+    return { step: state.next, backStep: restarted ? 0 : (state.nextBack ?? state.next), restarted };
+  }
+
+  function tags(step, backStep = step) {
+    const c = workoutParts(step, backStep);
     return c.map(id => `<span class="tag ${id}">${NAME[id]}</span>`).join('') +
       (c.includes('back') ? '' : '<span class="tag rest">등 휴식</span>');
   }
-  function stepName(step) {
-    const c = CYCLE[step];
+  function stepName(step, backStep = step) {
+    const c = workoutParts(step, backStep);
     return c.map(id => NAME[id]).join('·') + (c.includes('back') ? '' : ' (등 휴식)');
   }
-  function parts(step) {
-    const c = CYCLE[step];
+  function parts(step, backStep = step) {
+    const c = workoutParts(step, backStep);
     return '<div class="parts">' + ['chest', 'shoulder', 'back'].map(id => {
       const on = c.includes(id);
       let sub = on ? '하는 날' : '쉬는 날';
-      if (id === 'back' && on) sub = `${step + 1}/3일째`;
+      if (id === 'back' && on) sub = `${backStep + 1}/3일째`;
       return `<div class="part ${id} ${on ? 'on' : 'off'}">${NAME[id]}<small>${sub}</small></div>`;
     }).join('') + '</div>';
   }
-  function backLine(step) {
-    return CYCLE[step].includes('back')
-      ? `등은 <b>하는 날</b>입니다. 3일 중 ${step + 1}일째입니다.`
+  function backLine(backStep) {
+    return backStep !== BACK_REST
+      ? `등은 <b>하는 날</b>입니다. 3일 중 ${backStep + 1}일째입니다.`
       : `등은 <b>쉬는 날</b>입니다. 내일부터 다시 3일 합니다.`;
   }
 
@@ -154,7 +169,7 @@
 
   function calendar() {
     const done = {};
-    for (const e of state.log) if (!(e.date in done)) done[e.date] = e.step;
+    for (const e of state.log) if (!(e.date in done)) done[e.date] = e;
     const { y, m } = view;
     const first = new Date(y, m, 1).getDay();
     const days = new Date(y, m + 1, 0).getDate();
@@ -167,7 +182,7 @@
       const key = ymd(new Date(y, m, d));
       const isDone = key in done;
       if (isDone) count++;
-      const dots = isDone ? CYCLE[done[key]].map(id => `<i class="dot ${id}"></i>`).join('') : '';
+      const dots = isDone ? workoutParts(done[key].step, done[key].backStep).map(id => `<i class="dot ${id}"></i>`).join('') : '';
       cells += `<div class="cal-d ${isDone ? 'done' : ''} ${key === t ? 'today' : ''}"><span>${d}</span><div class="dots">${dots}</div></div>`;
     }
     const slide = view.dir > 0 ? 'slide-next' : view.dir < 0 ? 'slide-prev' : '';
@@ -194,32 +209,37 @@
     const t = today();
     const last = state.log[0];
     const doneToday = last && last.date === t;
+    const start = doneToday ? 1 : 0;
+    const next = nextWorkout(addDays(t, start));
     let html = `<div class="date">${fmt(t)}</div><h1>운동 순서</h1>`;
 
     if (doneToday) {
       html += `<section class="card">
         <div class="label">오늘 완료 ✓</div>
-        ${parts(last.step)}
+        ${parts(last.step, last.backStep)}
         <button class="btn ghost" onclick="undo()">완료 취소</button>
       </section>
       <section class="card">
         <div class="label">다음 운동</div>
-        ${parts(state.next)}
-        <div class="info">${backLine(state.next)}</div>
+        ${parts(next.step, next.backStep)}
+        <div class="info">${backLine(next.backStep)}</div>
       </section>`;
     } else {
       let lastInfo = '';
       if (last) {
         const gap = diff(last.date, t);
-        lastInfo = `<div class="info">지난 운동: <b>${past(last.date)}</b> · ${stepName(last.step)}` +
-          (gap > 1 ? `<br>며칠 쉬었어도 순서는 끊긴 곳부터 이어집니다.` : '') + `</div>`;
+        lastInfo = `<div class="info">지난 운동: <b>${past(last.date)}</b> · ${stepName(last.step, last.backStep)}` +
+          (next.restarted
+            ? '<br>3일 이상 쉬어서 등 운동은 1일째부터 다시 시작합니다.'
+            : gap > 1 && gap <= MISSED_DAYS_TO_RESTART_BACK
+              ? '<br>운동 순서는 끊긴 곳부터 이어집니다.' : '') + '</div>';
       } else {
         lastInfo = `<div class="info">처음 쓰신다면 아래 <b>순서 바로잡기</b>에서 오늘 할 운동을 먼저 골라 주세요.</div>`;
       }
       html += `<section class="card">
         <div class="label">오늘 할 운동</div>
-        ${parts(state.next)}
-        <div class="info">${backLine(state.next)}</div>
+        ${parts(next.step, next.backStep)}
+        <div class="info">${backLine(next.backStep)}</div>
         ${lastInfo}
         <button class="btn" onclick="complete()">운동 완료</button>
       </section>`;
@@ -228,13 +248,13 @@
     html += calendar();
 
     // 앞으로의 순서
-    const start = doneToday ? 1 : 0;
     html += `<section class="card"><div class="label">앞으로 (매일 한다고 가정)</div>`;
     for (let i = 0; i < 4; i++) {
       const k = start + i;
       const d = addDays(t, k);
-      const step = (state.next + i) % CYCLE.length;
-      html += `<div class="row"><span class="when">${future(k) ? `<b>${future(k)}</b>` : ''}${fmt(d)}</span><span>${tags(step)}</span></div>`;
+      const step = (next.step + i) % CYCLE.length;
+      const backStep = (next.backStep + i) % CYCLE.length;
+      html += `<div class="row"><span class="when">${future(k) ? `<b>${future(k)}</b>` : ''}${fmt(d)}</span><span>${tags(step, backStep)}</span></div>`;
     }
     html += `</section>`;
 
@@ -244,7 +264,7 @@
       html += `<div class="empty">아직 기록이 없습니다.</div>`;
     } else {
       for (const e of state.log.slice(0, 14)) {
-        html += `<div class="row"><span class="when"><b>${past(e.date)}</b>${fmt(e.date)}</span><span>${tags(e.step)}</span></div>`;
+        html += `<div class="row"><span class="when"><b>${past(e.date)}</b>${fmt(e.date)}</span><span>${tags(e.step, e.backStep)}</span></div>`;
       }
     }
     html += `</section>`;
@@ -254,7 +274,7 @@
       <summary>순서 바로잡기</summary>
       <div class="info">${doneToday ? '내일' : '오늘'} 할 운동을 직접 고릅니다. 처음 쓸 때나 순서가 꼬였을 때 사용하세요.</div>
       <div class="pick">${CYCLE.map((_, i) =>
-        `<button class="${i === state.next ? 'cur' : ''}" onclick="setNext(${i})">${stepName(i)}<br><small>${i < 3 ? `등 ${i + 1}/3일째` : '등 휴식일'}</small></button>`
+        `<button class="${i === next.backStep && CYCLE[i][0] === CYCLE[next.step][0] ? 'cur' : ''}" onclick="setNext(${i})">${stepName(i)}<br><small>${i < 3 ? `등 ${i + 1}/3일째` : '등 휴식일'}</small></button>`
       ).join('')}</div>
       <button class="danger" onclick="reset()">기록 모두 지우기</button>
     </details></section>`;
@@ -263,17 +283,30 @@
   }
 
   function complete() {
-    state.log.unshift({ date: today(), step: state.next });
-    state.next = (state.next + 1) % CYCLE.length;
+    const date = today();
+    if (state.log[0]?.date === date) return;
+    const { step, backStep } = nextWorkout(date);
+    state.log.unshift({ date, step, backStep });
+    state.next = (step + 1) % CYCLE.length;
+    state.nextBack = (backStep + 1) % CYCLE.length;
+    delete state.manualDate;
     save(); render();
   }
   function undo() {
     const e = state.log.shift();
-    if (e) state.next = e.step;
+    if (e) {
+      state.next = e.step;
+      state.nextBack = e.backStep ?? e.step;
+      // 취소한 운동의 순서를 복구합니다. 이전 기록은 건드리지 않습니다.
+      if (e.date === today()) state.manualDate = e.date;
+    }
     save(); render();
   }
   function setNext(i) {
+    const date = today();
     state.next = i;
+    state.nextBack = i;
+    state.manualDate = state.log[0]?.date === date ? addDays(date, 1) : date;
     save(); render();
   }
   function reset() {
